@@ -2,7 +2,7 @@
   "mysql_host": "localhost",
   "mysql_user": "root",
   "mysql_password": "password",
-  "databases": ["db1", "db2", "db3"],
+  "databases": ["*"],
   "backup_directory": "/path/to/backup",
   "ftp_host": "ftp.example.com",
   "ftp_user": "ftp_user",

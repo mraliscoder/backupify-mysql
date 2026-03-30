@@ -2,6 +2,8 @@ package main
 
 import (
 	"archive/tar"
+	"bufio"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jlaffaye/ftp"
@@ -37,6 +40,39 @@ func loadConfig(filename string) (Config, error) {
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
 	return config, err
+}
+
+var systemDatabases = map[string]bool{
+	"information_schema": true,
+	"mysql":              true,
+	"performance_schema": true,
+	"sys":                true,
+}
+
+func getAllDatabases(config Config) ([]string, error) {
+	cmd := exec.Command(
+		"mysql",
+		"-h", config.MySQLHost,
+		"-u", config.MySQLUser,
+		"-p"+config.MySQLPassword,
+		"--skip-column-names",
+		"-e", "SHOW DATABASES;",
+	)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to list databases: %w", err)
+	}
+
+	var databases []string
+	scanner := bufio.NewScanner(&out)
+	for scanner.Scan() {
+		db := strings.TrimSpace(scanner.Text())
+		if db != "" && !systemDatabases[db] {
+			databases = append(databases, db)
+		}
+	}
+	return databases, nil
 }
 
 func backupDatabase(config Config, database string, outputFile string) error {
@@ -144,8 +180,17 @@ func main() {
 		log.Fatalf("failed to create directory for backups: %v", err)
 	}
 
+	databases := config.Databases
+	if len(databases) == 1 && databases[0] == "*" {
+		databases, err = getAllDatabases(config)
+		if err != nil {
+			log.Fatalf("failed to list databases: %v", err)
+		}
+		fmt.Printf("discovered databases: %s\n", strings.Join(databases, ", "))
+	}
+
 	var backupFiles []string
-	for _, db := range config.Databases {
+	for _, db := range databases {
 		backupFile := filepath.Join(config.BackupDirectory, db+".sql")
 		fmt.Printf("creating database backup %s -> %s\n", db, backupFile)
 		err = backupDatabase(config, db, backupFile)
